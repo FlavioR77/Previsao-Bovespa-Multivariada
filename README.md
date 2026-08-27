@@ -1,12 +1,14 @@
 # 📈 Previsão Multivariada da Bovespa com Deep Learning
 
-Projeto de **Trabalho de Conclusão** que aplica técnicas de Deep Learning para prever o comportamento do índice Bovespa (^BVSP) com base em variáveis macroeconômicas globais — Dólar, S&P 500, Bolsa de Xangai, Petróleo, Minério de Ferro e Ouro.
+Projeto de **Trabalho de Conclusão** que aplica técnicas de Deep Learning para prever o comportamento do índice Bovespa (^BVSP) a partir de variáveis macroeconômicas globais — Dólar, S&P 500, Bolsa de Xangai, Petróleo, Minério de Ferro e Ouro — **acrescidas do prêmio de risco doméstico brasileiro (curva de juros e inflação implícita)**.
 
 ---
 
 ## 🎯 Objetivo
 
-Diferente dos modelos clássicos univariados (ARIMA/SARIMAX), esta abordagem reconhece que a Bovespa não opera de forma isolada: ela sofre influências contínuas de mercados e commodities globais. O projeto evolui por três estratégias complementares de previsão:
+Diferente dos modelos clássicos univariados (ARIMA/SARIMAX), esta abordagem reconhece que a Bovespa não opera de forma isolada: ela sofre influências contínuas e bidirecionais de mercados e commodities globais, além de ser diretamente sensível à curva de juros real do país.
+
+O projeto evolui por três estratégias complementares de previsão:
 
 | Abordagem | Descrição |
 |---|---|
@@ -44,6 +46,20 @@ Diferente dos modelos clássicos univariados (ARIMA/SARIMAX), esta abordagem rec
 
 Os dados são coletados automaticamente via `yfinance` com histórico de 3 anos:
 
+```python
+tickers = {
+    'Bovespa':     '^BVSP',
+    'Dolar':       'BRL=X',
+    'SP500':       '^GSPC',
+    'Shanghai':    '000001.SS',
+    'Petroleo':    'BZ=F',
+    'Minerio':     'TIO=F',
+    'Ouro':        'GC=F',
+    'Juros_BR':    'LFTS11.SA',
+    'Inflacao_BR': 'IMAB11.SA'
+}
+```
+
 | Variável | Ticker | Descrição |
 |---|---|---|
 | Bovespa | `^BVSP` | Índice de referência brasileiro — **alvo da previsão** |
@@ -53,6 +69,10 @@ Os dados são coletados automaticamente via `yfinance` com histórico de 3 anos:
 | Petróleo | `BZ=F` | Contrato futuro Brent |
 | Minério de Ferro | `TIO=F` | Contrato futuro de Minério |
 | Ouro | `GC=F` | Contrato futuro de Ouro |
+| Juros BR | `LFTS11.SA` | ETF atrelado à Selic — custo de oportunidade e liquidez diária |
+| Inflação BR | `IMAB11.SA` | ETF atrelado ao Tesouro IPCA+ — expectativa de risco fiscal e inflacionário |
+
+> **Por que ETFs e não séries oficiais?** Capturar taxas governamentais diretamente esbarra em instabilidade de API e falhas no histórico. Os ETFs `LFTS11.SA` e `IMAB11.SA` refletem a curva de juros em tempo real, com liquidez diária e alinhamento natural ao calendário da B3.
 
 ---
 
@@ -63,6 +83,13 @@ Os modelos de classificação enriquecem os retornos brutos com três indicadore
 - **RSI (14 períodos)** — captura momentum de sobrecompra/sobrevenda
 - **Distância para SMA-15** — mede o afastamento da tendência de médio prazo
 - **Largura das Bandas de Bollinger (20 períodos)** — quantifica a volatilidade atual
+
+---
+
+## 🧩 Pré-processamento
+
+- **Tratamento de NaNs:** bolsas globais têm calendários de feriados distintos. O método *forward fill* (`ffill`) preenche os buracos e garante o alinhamento das matrizes exógenas antes do treinamento.
+- **Escalonamento:** redes neurais são sensíveis à escala (Bovespa na casa dos 100.000 pontos vs. Dólar em torno de 5,00). Todos os dados passam por `MinMaxScaler`, evitando explosão de pesos e acelerando a convergência.
 
 ---
 
@@ -78,6 +105,19 @@ Dense(N, activation='softmax')   # N = 3 ou 5 classes
 ```
 
 A janela temporal utilizada é de **7 dias úteis** (`time_steps = 7`).
+
+---
+
+## 📐 Métricas de Avaliação
+
+| Métrica | Papel no projeto |
+|---|---|
+| **RMSE** | Raiz do erro quadrático médio (nativo no scikit-learn 1.8.0) |
+| **MAE / MSE** | Verificação do desvio absoluto e quadrático da regressão |
+| **EVS** | Explained Variance Score — quanto da variância o modelo explica |
+| **MDA** | *Mean Directional Accuracy*, implementada manualmente: percentual de acerto de direção (alta ou baixa) |
+
+No mercado financeiro, acertar a **direção** costuma ser mais rentável do que cravar a magnitude nominal — por isso o MDA é tratado aqui como métrica de primeira classe.
 
 ---
 
@@ -100,6 +140,26 @@ A janela temporal utilizada é de **7 dias úteis** (`time_steps = 7`).
 | ➖ Neutro | Entre -0,2% e +0,2% | Sem tendência definida |
 | ↗️ Leve Alta | Entre +0,2% e +1,0% | Crescimento marginal |
 | 📈 Alta Forte | Retorno > +1,0% | Rompimento de resistência |
+
+---
+
+## 📈 Resultados: o Impacto das Variáveis Macro Domésticas
+
+A adição progressiva de juros e inflação revelou um *trade-off* clássico de Machine Learning: a rede alterna o foco entre **assertividade direcional** e **precisão absoluta de precificação**.
+
+| Métrica | Cenário Base (sem juros) | Com Juros (Selic) | Com Juros + Inflação |
+|---|---|---|---|
+| MDA (Acurácia Direcional) | 42,95% | **52,34%** | 51,67% |
+| MAE (Erro Médio Absoluto) | 8.603 pts | 8.140 pts | **5.262 pts** |
+| RMSE | 9.271 pts | 8.826 pts | **6.159 pts** |
+| EVS Score | **87,69%** | 82,52% | 83,92% |
+
+**Leitura dos resultados:**
+
+- **Edge direcional (operações táticas):** a inclusão isolada da taxa de juros elevou o MDA para 52,34%, rompendo a barreira estatística do acaso. O modelo aprendeu que picos de juros de curtíssimo prazo drenam liquidez da bolsa — configuração ideal para estratégias de *Trend Following* puro.
+- **Precisão de valuation (alocação estrutural):** o IPCA+ funcionou como âncora gravitacional. O ruído adicional reduziu marginalmente o MDA (51,67%), mas o MAE despencou de 8.140 para 5.262 pontos. Ao incorporar o prêmio de risco inflacionário, o modelo mitigou projeções extremas e passou a estimar com mais fidelidade o *fair value* do índice.
+
+Em síntese: a bolsa se comporta como um **derivativo complexo da curva de juros real do país**.
 
 ---
 
@@ -171,20 +231,30 @@ Veredito Principal: 📉 BAIXA FORTE (menor que -1.0%)
 
 ---
 
-## 🔬 Conclusões do Trabalho
+## 🛠️ Desafios Técnicos e Soluções
 
-- **Interdependência global:** A Bovespa apresenta forte correlação com Shanghai, S&P 500 e contratos de minério e petróleo. O GRU captura essas interações não lineares de forma mais eficaz do que modelos estatísticos clássicos.
-- **Classificação > Regressão:** Modelos probabilísticos por classes oferecem previsões estrategicamente mais seguras do que a estimativa de um ponto nominal único.
-- **Pré-processamento é crítico:** O uso de `MinMaxScaler` e o preenchimento de feriados internacionais via `ffill` são etapas indispensáveis para a convergência dos modelos.
+- **Métrica ausente no scikit-learn:** o MDA não existe nativamente na biblioteca, exigindo implementação manual da função de acurácia direcional.
+- **Estacionariedade vs. Machine Learning:** foi necessário corrigir a submissão de valores nominais às camadas densas — o `fit()` deve receber os dados escalados, nunca os nativos.
+- **Salvamento de pesos no TensorFlow 2.16+:** a nova nomenclatura estrita gerava `ValueError`. A solução foi migrar a extensão de `.h5` para `.weights.h5` no `save_weights()`, salvando a arquitetura separadamente via `.to_json()`.
+- **Captura de taxas governamentais:** instabilidade de API e falhas no histórico levaram à substituição das séries oficiais por ETFs de renda fixa listados na B3.
 
 ---
 
-## 🛠️ Stack Tecnológica
+## 🔬 Conclusões do Trabalho
+
+- **Interdependência global:** a Bovespa apresenta forte correlação com Shanghai, S&P 500 e contratos de minério e petróleo. O GRU captura essas interações não lineares de forma mais eficaz do que ARIMA/SARIMAX, que exigem uma linearidade frequentemente ausente nos dados de mercado.
+- **Classificação > Regressão:** modelos probabilísticos por classes oferecem previsões estrategicamente mais seguras do que a estimativa de um ponto nominal único. Saber a probabilidade de "Alta" vs. "Neutro" agrega mais valor à gestão de risco do que um número exato.
+- **Pré-processamento é crítico:** `MinMaxScaler` e o preenchimento de feriados internacionais via `ffill` são etapas indispensáveis para a convergência dos modelos.
+- **Macro doméstica é o diferencial:** a curva de juros define o *edge* direcional; a inflação implícita ancora a precificação. A escolha entre as duas configurações depende do objetivo — operar tendência ou estimar preço justo.
+
+---
+
+## 🧰 Stack Tecnológica
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange?logo=tensorflow)
 ![Keras](https://img.shields.io/badge/Keras-GRU%2FLSTM-red?logo=keras)
-![scikit-learn](https://img.shields.io/badge/scikit--learn-MinMaxScaler-green?logo=scikitlearn)
+![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8.0-green?logo=scikitlearn)
 ![yfinance](https://img.shields.io/badge/yfinance-Market%20Data-blueviolet)
 ![ta](https://img.shields.io/badge/ta-Technical%20Analysis-yellow)
 
