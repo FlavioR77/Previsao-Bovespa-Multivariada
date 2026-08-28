@@ -1,6 +1,6 @@
 # 📈 Previsão Multivariada da Bovespa com Deep Learning
 
-Projeto de **Trabalho de Conclusão** que aplica técnicas de Deep Learning para prever o comportamento do índice Bovespa (^BVSP) a partir de variáveis macroeconômicas globais — Dólar, S&P 500, Bolsa de Xangai, Petróleo, Minério de Ferro e Ouro — **acrescidas do prêmio de risco doméstico brasileiro (curva de juros e inflação implícita)**.
+Projeto de **Trabalho de Conclusão** que aplica técnicas de Deep Learning (MLP, CNN, LSTM e GRU) para prever o comportamento do índice Bovespa (`^BVSP`) a partir de variáveis macroeconômicas globais — Dólar, S&P 500, Bolsa de Xangai, Petróleo, Minério de Ferro e Ouro — **acrescidas do prêmio de risco doméstico brasileiro (curva de juros e inflação implícita)**.
 
 ---
 
@@ -22,29 +22,36 @@ O projeto evolui por três estratégias complementares de previsão:
 
 ```
 .
-├── Previsao_Multivariada.ipynb       # Notebook principal: EDA, MLP, GRU e LSTM (regressão)
-├── Previsao_3_Classes.ipynb          # Treinamento do classificador GRU com 3 classes
-├── Previsao_5_Classes.ipynb          # Treinamento do classificador GRU com 5 classes
-├── Previsao_Diaria.ipynb             # Previsão diária de ponto (regressão, modelo salvo)
-├── Previsao_Diaria_3_Classes.ipynb   # Previsão diária com o modelo de 3 classes
-├── Previsao_Diaria_5_Classes.ipynb   # Previsão diária com o modelo de 5 classes
-├── modelos/
-│   ├── modelo_gru.json                        # Arquitetura do modelo de regressão
-│   ├── modelo_gru.weights.h5                  # Pesos do modelo de regressão
-│   ├── modelo_gru_classificador_3c.weights.h5 # Pesos do classificador 3 classes
-│   ├── modelo_gru_classificador.weights.h5    # Pesos do classificador 5 classes
-│   ├── scaler_X.pkl                           # Normalizador das features (regressão)
-│   ├── scaler_y.pkl                           # Normalizador do alvo (regressão)
-│   ├── scaler_X_classificador_3c.pkl          # Normalizador das features (3 classes)
-│   └── scaler_X_classificador.pkl             # Normalizador das features (5 classes)
+├── Previsao Multivariada.ipynb            # V1 — EDA + benchmark entre MLP, CNN, LSTM e GRU (7 variáveis)
+├── Previsao Multivariadas V2.ipynb        # V2 — GRU de regressão com juros e inflação (9 variáveis)
+├── Previsao 3 Classes.ipynb               # Treinamento do classificador GRU com 3 classes
+├── Previsao 5 Classes.ipynb               # Treinamento do classificador GRU com 5 classes
+├── Previsao Diaria.ipynb                  # Previsão diária de ponto (carrega o modelo salvo)
+├── Previsao Diaria 3 Classes.ipynb        # Previsão diária com o modelo de 3 classes
+├── Previsao Diaria 5 Classes.ipynb        # Previsão diária com o modelo de 5 classes
+├── Trabalho de Conclusão - Previsão Multivariada.docx   # Documento acadêmico completo
 └── README.md
 ```
+
+> 🔧 A pasta `modelos/` **não é versionada** — ela é criada automaticamente na primeira execução dos notebooks de treinamento, e recebe os artefatos abaixo:
+>
+> ```
+> modelos/
+> ├── modelo_gru.json                          # Arquitetura do modelo de regressão
+> ├── modelo_gru.weights.h5                    # Pesos do modelo de regressão
+> ├── modelo_gru_classificador_3c.weights.h5   # Pesos do classificador 3 classes
+> ├── modelo_gru_classificador.weights.h5      # Pesos do classificador 5 classes
+> ├── scaler_X.pkl                             # Normalizador das features (regressão)
+> ├── scaler_y.pkl                             # Normalizador do alvo (regressão)
+> ├── scaler_X_classificador_3c.pkl            # Normalizador das features (3 classes)
+> └── scaler_X_classificador.pkl               # Normalizador das features (5 classes)
+> ```
 
 ---
 
 ## 🌐 Variáveis Utilizadas
 
-Os dados são coletados automaticamente via `yfinance` com histórico de 3 anos:
+Os dados são coletados automaticamente via `yfinance` com histórico de 3 anos (`period='3y'`):
 
 ```python
 tickers = {
@@ -74,37 +81,55 @@ tickers = {
 
 > **Por que ETFs e não séries oficiais?** Capturar taxas governamentais diretamente esbarra em instabilidade de API e falhas no histórico. Os ETFs `LFTS11.SA` e `IMAB11.SA` refletem a curva de juros em tempo real, com liquidez diária e alinhamento natural ao calendário da B3.
 
+Os 8 ativos exógenos formam as **variáveis preditoras**; o `Bovespa` é o alvo, escalonado por um `MinMaxScaler` próprio (`scaler_target`).
+
 ---
 
 ## ⚙️ Indicadores Técnicos (Features Adicionais)
 
-Os modelos de classificação enriquecem os retornos brutos com três indicadores técnicos calculados sobre a Bovespa:
+Os modelos de classificação enriquecem os retornos brutos com três indicadores técnicos calculados sobre a Bovespa via biblioteca `ta`:
 
-- **RSI (14 períodos)** — captura momentum de sobrecompra/sobrevenda
-- **Distância para SMA-15** — mede o afastamento da tendência de médio prazo
-- **Largura das Bandas de Bollinger (20 períodos)** — quantifica a volatilidade atual
+- **RSI (14 períodos)** — `ta.momentum.RSIIndicator`, captura momentum de sobrecompra/sobrevenda
+- **Distância para SMA-15** — `(Bovespa / SMA15) - 1`, mede o afastamento da tendência de médio prazo
+- **Largura das Bandas de Bollinger (20 períodos)** — `bollinger_wband()`, quantifica a volatilidade atual
 
 ---
 
 ## 🧩 Pré-processamento
 
-- **Tratamento de NaNs:** bolsas globais têm calendários de feriados distintos. O método *forward fill* (`ffill`) preenche os buracos e garante o alinhamento das matrizes exógenas antes do treinamento.
+- **Tratamento de NaNs:** bolsas globais têm calendários de feriados distintos. O método *forward fill* (`ffill`) preenche os buracos e um `dropna()` final garante o alinhamento das matrizes exógenas.
 - **Escalonamento:** redes neurais são sensíveis à escala (Bovespa na casa dos 100.000 pontos vs. Dólar em torno de 5,00). Todos os dados passam por `MinMaxScaler`, evitando explosão de pesos e acelerando a convergência.
+- **Split temporal:** 80% treino / 20% teste, **sem embaralhamento** (`shuffle=False`), preservando a ordem cronológica da série.
+- **Janelas deslizantes:** `time_steps = 7` dias úteis por amostra.
 
 ---
 
-## 🧠 Arquitetura dos Modelos
+## 🧠 Arquiteturas
 
-Todos os modelos de classificação compartilham a mesma arquitetura GRU:
+### Regressão (`Previsao Multivariadas V2.ipynb`)
 
+```python
+GRU(units=128, input_shape=(7, n_features))
+Dropout(0.2)
+Dense(1)
+
+# loss='mean_squared_error', optimizer='adam'
+# epochs=100, batch_size=32, validation_split=0.1, shuffle=False
 ```
-GRU(50, return_sequences=True)  →  Dropout(0.2)
-GRU(50, return_sequences=False) →  Dropout(0.2)
+
+A V1 (`Previsao Multivariada.ipynb`) usa a mesma base para comparar **MLP, CNN (Conv1D), LSTM e GRU**; a V2 mantém o vencedor (GRU) e adiciona as variáveis macro domésticas.
+
+### Classificação (3 e 5 classes)
+
+```python
+GRU(50, return_sequences=True)   →  Dropout(0.2)
+GRU(50, return_sequences=False)  →  Dropout(0.2)
 Dense(25, activation='relu')
-Dense(N, activation='softmax')   # N = 3 ou 5 classes
-```
+Dense(N, activation='softmax')    # N = 3 ou 5
 
-A janela temporal utilizada é de **7 dias úteis** (`time_steps = 7`).
+# loss='categorical_crossentropy', optimizer='adam', metrics=['accuracy']
+# epochs=100, batch_size=32, validation_split=0.1
+```
 
 ---
 
@@ -112,10 +137,16 @@ A janela temporal utilizada é de **7 dias úteis** (`time_steps = 7`).
 
 | Métrica | Papel no projeto |
 |---|---|
-| **RMSE** | Raiz do erro quadrático médio (nativo no scikit-learn 1.8.0) |
+| **RMSE** | `root_mean_squared_error`, nativo no scikit-learn 1.8.0 |
 | **MAE / MSE** | Verificação do desvio absoluto e quadrático da regressão |
-| **EVS** | Explained Variance Score — quanto da variância o modelo explica |
-| **MDA** | *Mean Directional Accuracy*, implementada manualmente: percentual de acerto de direção (alta ou baixa) |
+| **EVS** | *Explained Variance Score* — quanto da variância o modelo explica |
+| **MDA** | *Mean Directional Accuracy* — implementada manualmente, mede o percentual de acerto de direção |
+
+```python
+def mda(actual, predicted):
+    return np.mean((np.sign(actual[1:] - actual[:-1]) ==
+                    np.sign(predicted[1:] - predicted[:-1])).astype(int))
+```
 
 No mercado financeiro, acertar a **direção** costuma ser mais rentável do que cravar a magnitude nominal — por isso o MDA é tratado aqui como métrica de primeira classe.
 
@@ -168,8 +199,8 @@ Em síntese: a bolsa se comporta como um **derivativo complexo da curva de juros
 ### 1. Clone o repositório
 
 ```bash
-git clone https://github.com/seu-usuario/previsao-multivariada-bovespa.git
-cd previsao-multivariada-bovespa
+git clone https://github.com/FlavioR77/Previsao-Bovespa-Multivariada.git
+cd Previsao-Bovespa-Multivariada
 ```
 
 ### 2. Crie o ambiente virtual e instale as dependências
@@ -182,22 +213,24 @@ pip install yfinance pandas numpy scikit-learn tensorflow ta joblib matplotlib s
 
 ### 3. Treinamento (executar uma única vez)
 
-Execute na ordem:
+Execute na ordem — estes notebooks geram a pasta `modelos/`:
 
 ```
-Previsao_Multivariada.ipynb   → Gera modelo de regressão (modelos/)
-Previsao_3_Classes.ipynb      → Gera modelo classificador 3 classes (modelos/)
-Previsao_5_Classes.ipynb      → Gera modelo classificador 5 classes (modelos/)
+Previsao Multivariadas V2.ipynb   → Modelo de regressão + scaler_X / scaler_y
+Previsao 3 Classes.ipynb          → Classificador de 3 classes + scaler
+Previsao 5 Classes.ipynb          → Classificador de 5 classes + scaler
 ```
+
+> `Previsao Multivariada.ipynb` (V1) é opcional: serve como benchmark comparativo entre MLP, CNN, LSTM e GRU.
 
 ### 4. Previsão diária (uso rotineiro)
 
-Com os modelos já treinados e salvos na pasta `modelos/`, basta executar:
+Com os modelos salvos em `modelos/`, basta executar:
 
 ```
-Previsao_Diaria.ipynb             → Ponto de fechamento estimado
-Previsao_Diaria_3_Classes.ipynb   → Veredito: Alta / Neutro / Baixa + probabilidades
-Previsao_Diaria_5_Classes.ipynb   → Veredito completo com zonas de preço e risco de volatilidade
+Previsao Diaria.ipynb             → Ponto de fechamento estimado
+Previsao Diaria 3 Classes.ipynb   → Veredito: Alta / Neutro / Baixa + probabilidades
+Previsao Diaria 5 Classes.ipynb   → Veredito completo com zonas de preço e risco de volatilidade
 ```
 
 ---
@@ -253,7 +286,7 @@ Veredito Principal: 📉 BAIXA FORTE (menor que -1.0%)
 
 ![Python](https://img.shields.io/badge/Python-3.12-blue?logo=python)
 ![TensorFlow](https://img.shields.io/badge/TensorFlow-2.x-orange?logo=tensorflow)
-![Keras](https://img.shields.io/badge/Keras-GRU%2FLSTM-red?logo=keras)
+![Keras](https://img.shields.io/badge/Keras-GRU%2FLSTM%2FCNN%2FMLP-red?logo=keras)
 ![scikit-learn](https://img.shields.io/badge/scikit--learn-1.8.0-green?logo=scikitlearn)
 ![yfinance](https://img.shields.io/badge/yfinance-Market%20Data-blueviolet)
 ![ta](https://img.shields.io/badge/ta-Technical%20Analysis-yellow)
@@ -263,6 +296,7 @@ Veredito Principal: 📉 BAIXA FORTE (menor que -1.0%)
 ## 👤 Autor
 
 **Flavio Renan Sant'Anna**
+[github.com/FlavioR77](https://github.com/FlavioR77)
 
 ---
 
